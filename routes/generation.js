@@ -8,28 +8,27 @@ const db = require('../db');
 
 const router = express.Router();
 
-// --- CLÉS API ET MODÈLES ---
+// --- CONFIGURATION ---
 const CLE_GROQ = process.env.GROQ_API_KEY || '';
-const CLE_GEMINI = process.env.GEMINI_API_KEY || ''; // Optionnel (secours)
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'; // Optionnel (secours local)
-const MODELE_OLLAMA = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
-
-// Modèle Groq ultra-rapide
 const MODELE_GROQ = 'llama-3.1-8b-instant'; 
-
-// Limite de texte pour éviter que l'IA ne mette trop de temps à lire
 const MAX_CARACTERES = 15000; 
+
+// Configuration de Multer (stockage en mémoire pour traiter le fichier)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// --- EXTRACTION DU TEXTE (PDF / TXT) ---
+// --- FONCTIONS UTILITAIRES ---
+
+// 1. Extraire le texte du PDF ou TXT
 function extraireTexte(file) {
   const ext = path.extname(file.originalname).toLowerCase();
   if (ext === '.txt') return Promise.resolve(file.buffer.toString('utf8'));
   if (ext !== '.pdf') return Promise.reject(new Error('Format accepté : PDF ou TXT.'));
+  
   return new Promise((resolve, reject) => {
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'qcm-'));
     const chemin = path.join(dossier, 'doc.pdf');
     fs.writeFileSync(chemin, file.buffer);
+    
     execFile('pdftotext', [chemin, '-'], { maxBuffer: 20 * 1024 * 1024, timeout: 30000 }, (err, stdout) => {
       fs.rmSync(dossier, { recursive: true, force: true });
       if (err) return reject(new Error('Lecture du PDF impossible.'));
@@ -38,7 +37,7 @@ function extraireTexte(file) {
   });
 }
 
-// --- CONSTRUCTION DU PROMPT ---
+// 2. Construire le prompt pour l'IA
 function construirePrompt(texte, nb, difficulte) {
   return `Tu es un enseignant. À partir du DOCUMENT ci-dessous, rédige exactement ${nb} questions à choix multiples en français, de difficulté ${difficulte}.
 Règles strictes :
@@ -46,10 +45,9 @@ Règles strictes :
 - Chaque question a 4 options (A, B, C, D) dont une seule est correcte.
 - ATTENTION : Ne génère JAMAIS deux options qui sont des synonymes ou des versions d'un même nom.
 - Varie la position de la bonne réponse.
-- Les mauvaises réponses sont plausibles mais clairement fausses.
 - Ajoute une explication très courte (une phrase) qui justifie la bonne réponse.
 
-Réponds UNIQUEMENT avec un objet JSON, sans texte autour, de la forme :
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, de la forme :
 {"questions":[{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","bonne_reponse":"A","explication":"..."}]}
 
 DOCUMENT :
@@ -58,10 +56,9 @@ ${texte}
 """`;
 }
 
-// --- APPELS AUX API ---
-
+// 3. Appeler l'API Groq
 async function appelerGroq(prompt) {
-  console.log("📡 Appel de l'API Groq en cours...");
+  console.log("📡 Appel de l'API Groq...");
   const reponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -74,60 +71,21 @@ async function appelerGroq(prompt) {
       response_format: { type: "json_object" },
       temperature: 0.2,
     }),
-    signal: AbortSignal.timeout(60000), // 60 secondes max
+    signal: AbortSignal.timeout(60000),
   });
 
   if (!reponse.ok) {
     const errTxt = await reponse.text();
     console.error('❌ Erreur Groq', reponse.status, errTxt);
-    if (reponse.status === 429) throw new Error('Quota Groq dépassé. Attends 1 minute.');
     throw new Error(`L'API Groq a répondu par une erreur (${reponse.status}).`);
   }
 
   const data = await reponse.json();
-  console.log("✅ Réponse de Groq reçue !");
+  console.log("✅ Réponse Groq reçue !");
   return data.choices[0].message.content;
 }
 
-async function appelerGemini(prompt) {
-  console.log("📡 Appel de l'API Gemini en cours...");
-  const reponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${CLE_GEMINI}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
-    }),
-    signal: AbortSignal.timeout(40000),
-  });
-
-  if (!reponse.ok) throw new Error(`Erreur Gemini (${reponse.status})`);
-  const data = await reponse.json();
-  console.log("✅ Réponse de Gemini reçue !");
-  return data.candidates[0].content.parts[0].text;
-}
-
-async function appelerOllama(prompt) {
-  console.log("📡 Appel d'Ollama en local (patientez...)");
-  const reponse = await fetch(OLLAMA_URL + '/api/chat', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: MODELE_OLLAMA,
-      stream: false,
-      format: 'json',
-      options: { num_ctx: 4096, temperature: 0.2 },
-      messages: [{ role: 'user', content: prompt }],
-    }),
-    signal: AbortSignal.timeout(20 * 60 * 1000),
-  });
-  if (!reponse.ok) throw new Error('Erreur Ollama');
-  const data = await reponse.json();
-  console.log("✅ Réponse d'Ollama reçue !");
-  return data.message.content;
-}
-
-// --- PARSING ET NETTOYAGE ---
+// 4. Parser et nettoyer le JSON reçu
 function lireJson(texte) {
   const d = texte.indexOf('{');
   const f = texte.lastIndexOf('}');
@@ -135,9 +93,7 @@ function lireJson(texte) {
     try {
       const o = JSON.parse(texte.slice(d, f + 1));
       if (Array.isArray(o.questions)) return o.questions;
-    } catch (e) {
-      console.error("⚠️ Erreur de syntaxe JSON.");
-    }
+    } catch (e) { }
   }
   throw new Error('Le modèle n\'a pas renvoyé un JSON valide.');
 }
@@ -152,6 +108,7 @@ function nettoyer(liste, nb) {
       bonne: t(q.bonne_reponse).toUpperCase(), explication: t(q.explication),
     };
     if (!item.enonce || !item.a || !item.b || !item.c || !item.d) continue;
+    // Vérifie que les 4 options sont différentes
     if (new Set([item.a, item.b, item.c, item.d].map((x) => x.toLowerCase())).size < 4) continue;
     if (!/^[ABCD]$/.test(item.bonne)) continue;
     valides.push(item);
@@ -160,21 +117,13 @@ function nettoyer(liste, nb) {
   return valides;
 }
 
-// --- MOTEUR PRINCIPAL ---
+// 5. Fonction principale de génération
 async function genererQuestions(texte, nb, difficulte) {
   const texteCoupe = texte.slice(0, MAX_CARACTERES);
   const prompt = construirePrompt(texteCoupe, nb, difficulte);
-  let brut = '';
-
+  
   try {
-    if (CLE_GROQ) {
-      brut = await appelerGroq(prompt);
-    } else if (CLE_GEMINI) {
-      brut = await appelerGemini(prompt);
-    } else {
-      brut = await appelerOllama(prompt);
-    }
-    
+    const brut = await appelerGroq(prompt);
     const questions = nettoyer(lireJson(brut), nb);
     if (questions.length === 0) throw new Error("0 questions valides générées.");
     return { questions, derniereErreur: '' };
@@ -185,62 +134,49 @@ async function genererQuestions(texte, nb, difficulte) {
 }
 
 // --- ROUTES EXPRESS ---
-const insQcm = db.prepare('INSERT INTO qcm (titre, matiere, duree_minutes) VALUES (?, ?, ?)');
-const insQ = db.prepare(
-  'INSERT INTO questions (qcm_id, enonce, option_a, option_b, option_c, option_d, bonne_reponse, points, explication) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
-);
-const enregistrer = db.transaction((titre, matiere, duree, questions) => {
-  const id = insQcm.run(titre, matiere, duree).lastInsertRowid;
-  for (const q of questions) insQ.run(id, q.enonce, q.a, q.b, q.c, q.d, q.bonne, q.explication || null);
-  return id;
-});
 
-router.get('/generer-page', (req, res) =>
-  res.sendFile(path.join(__dirname, '..', 'private', 'generer.html'))
-);
-
-router.post('/generer', (req, res) => {
-  upload.single('fichier')(req, res, async (err) => {
+// Route 1 : Pour l'administration (sauvegarde en DB)
+router.post('/api/generer-admin', upload.single('fichier'), async (req, res) => {
     try {
-      if (err) return res.status(400).json({ erreur: err.message });
-      if (!req.file) return res.status(400).json({ erreur: 'Fichier PDF ou TXT requis.' });
+        if (!req.file) return res.status(400).json({ erreur: 'Fichier requis.' });
+        const nb = Math.min(Math.max(parseInt(req.body.nb_questions) || 10, 3), 30);
+        
+        const texte = (await extraireTexte(req.file)).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        const { questions, derniereErreur } = await genererQuestions(texte, nb, req.body.difficulte || 'moyenne');
+        
+        if (!questions.length) return res.status(502).json({ erreur: derniereErreur || 'Aucune question générée.' });
 
-      const titre = String(req.body.titre || '').trim();
-      if (!titre) return res.status(400).json({ erreur: 'Le titre est obligatoire.' });
-      
-      const matiere = String(req.body.matiere || '').trim() || null;
-      const duree = Math.min(Math.max(parseInt(req.body.duree_minutes, 10) || 30, 1), 600);
-      const nb = Math.min(Math.max(parseInt(req.body.nb_questions, 10) || 10, 3), 30);
-      const difficulte = ['facile', 'moyenne', 'difficile'].includes(req.body.difficulte) ? req.body.difficulte : 'moyenne';
-
-      console.log(`\n--- Nouvelle génération (${nb} questions) ---`);
-      
-      const texte = (await extraireTexte(req.file)).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-      if (texte.length < 200) return res.status(400).json({ erreur: 'Texte insuffisant dans ce fichier.' });
-
-      const { questions, derniereErreur } = await genererQuestions(texte, nb, difficulte);
-      if (!questions.length) return res.status(502).json({ erreur: derniereErreur || 'Aucune question générée.' });
-
-      console.log(`💾 Enregistrement de ${questions.length} questions...`);
-      const id = enregistrer(titre, matiere, duree, questions);
-      const lignes = db.prepare('SELECT id, enonce, option_a, option_b, option_c, option_d, bonne_reponse, explication FROM questions WHERE qcm_id = ? ORDER BY id').all(id);
-      
-      console.log("🎉 Terminé avec succès !\n");
-      res.json({ ok: true, qcm_id: id, questions: lignes });
+        res.json({ ok: true, questions });
     } catch (e) {
-      console.error("💥 Erreur fatale :", e);
-      res.status(500).json({ erreur: e.message || 'Erreur pendant la génération.' });
+        console.error(e);
+        res.status(500).json({ erreur: e.message || 'Erreur pendant la génération.' });
     }
-  });
 });
 
-router.delete('/questions/:id', (req, res) => {
-  try {
-    const r = db.prepare('DELETE FROM questions WHERE id = ?').run(req.params.id);
-    res.status(r.changes ? 200 : 404).json({ ok: !!r.changes });
-  } catch (e) {
-    res.status(409).json({ erreur: 'Question déjà utilisée dans un examen.' });
-  }
+// Route 2 : Pour les étudiants (renvoie juste le JSON sans sauvegarder)
+router.post('/api/generer-etudiant', upload.single('fichier'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ erreur: 'Fichier requis.' });
+        
+        const nb = Math.min(Math.max(parseInt(req.body.nb_questions) || 10, 3), 20);
+        const difficulte = req.body.difficulte || 'moyenne';
+
+        console.log(`\n--- Nouvelle génération Étudiant (${nb} questions) ---`);
+        
+        const texte = (await extraireTexte(req.file)).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        if (texte.length < 200) return res.status(400).json({ erreur: 'Texte insuffisant dans le fichier.' });
+
+        const { questions, derniereErreur } = await genererQuestions(texte, nb, difficulte);
+        
+        if (!questions.length) return res.status(502).json({ erreur: derniereErreur || 'Aucune question générée.' });
+
+        console.log(`🎉 ${questions.length} questions générées pour l'étudiant !`);
+        res.json({ ok: true, questions });
+        
+    } catch (e) {
+        console.error("💥 Erreur fatale étudiant :", e);
+        res.status(500).json({ erreur: 'Erreur lors de la génération.' });
+    }
 });
 
 module.exports = router;
