@@ -1,25 +1,110 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tableau de bord</title>
-  <link rel="stylesheet" href="/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau de bord - Étudiant</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main class="carte">
-    <h1 id="titre">Bienvenue</h1>
-    <p>Les examens disponibles apparaîtront ici.</p>
-    <button id="out">Se déconnecter</button>
-  </main>
-  <script>
-    fetch('/api/auth/me').then((r) => r.json()).then((u) => {
-      document.getElementById('titre').textContent = 'Bienvenue, ' + u.nom;
-    });
-    document.getElementById('out').addEventListener('click', async () => {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      location.href = '/login.html';
-    });
-  </script>
+    <main class="carte">
+        <h1 id="titre">Bienvenue</h1>
+        <p>Générez un QCM à partir de votre cours pour vous entraîner.</p>
+        
+        <button id="out" style="margin-bottom: 20px;">Se déconnecter</button>
+
+        <!-- Le formulaire de génération -->
+        <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+            <h3 style="margin-top: 0;">Créer mon QCM</h3>
+            
+            <label style="font-weight: bold;">Fichier PDF ou TXT :</label><br>
+            <input type="file" id="fichier-etudiant" accept=".pdf,.txt" style="margin-top: 5px; margin-bottom: 15px;"><br>
+
+            <label style="font-weight: bold;">Nombre de questions :</label><br>
+            <select id="nb-questions-etudiant" style="margin-top: 5px; margin-bottom: 15px; padding: 5px;">
+                <option value="5">5 questions</option>
+                <option value="10" selected>10 questions</option>
+                <option value="15">15 questions</option>
+            </select><br>
+
+            <button id="btn-generer-etudiant" style="background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                Générer mon QCM
+            </button>
+        </div>
+
+        <!-- Zone où s'afficheront les questions -->
+        <div id="resultat-etudiant" style="margin-top: 20px;"></div>
+    </main>
+
+    <script>
+        // 1. Afficher le nom de l'utilisateur connecté
+        fetch('/api/auth/me')
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.nom) {
+                    document.getElementById('titre').textContent = 'Bienvenue, ' + data.nom;
+                }
+            })
+            .catch(err => console.log('Erreur auth:', err));
+
+        // 2. Gérer la déconnexion
+        document.getElementById('out').addEventListener('click', async () => {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/login.html';
+        });
+
+        // 3. Gérer la génération du QCM
+        document.getElementById('btn-generer-etudiant').addEventListener('click', async function() {
+            const fichierInput = document.getElementById('fichier-etudiant');
+            const fichier = fichierInput.files[0];
+            const nbQuestions = document.getElementById('nb-questions-etudiant').value;
+            const zoneResultat = document.getElementById('resultat-etudiant');
+
+            if (!fichier) {
+                alert("Veuillez sélectionner un fichier PDF ou TXT.");
+                return;
+            }
+
+            zoneResultat.innerHTML = "<p>⏳ Analyse du document et génération en cours... (environ 5 secondes)</p>";
+            this.disabled = true;
+
+            const formData = new FormData();
+            formData.append('fichier', fichier);
+            formData.append('nb_questions', nbQuestions);
+            formData.append('difficulte', 'moyenne');
+
+            try {
+                const reponse = await fetch('/api/generer-etudiant', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await reponse.json();
+
+                if (data.ok) {
+                    let html = "<h3>✅ Votre QCM est prêt !</h3>";
+                    data.questions.forEach((q, index) => {
+                        html += `
+                        <div style="margin-bottom: 15px; background: white; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                            <p style="font-weight: bold; margin-top: 0;">${index + 1}. ${q.enonce}</p>
+                            <p style="margin: 5px 0;">A) ${q.a}</p>
+                            <p style="margin: 5px 0;">B) ${q.b}</p>
+                            <p style="margin: 5px 0;">C) ${q.c}</p>
+                            <p style="margin: 5px 0;">D) ${q.d}</p>
+                            <p style="color: green; margin-bottom: 0;"><em>Réponse : ${q.bonne} - ${q.explication}</em></p>
+                        </div>`;
+                    });
+                    zoneResultat.innerHTML = html;
+                } else {
+                    zoneResultat.innerHTML = `<p style="color: red;">❌ Erreur : ${data.erreur}</p>`;
+                }
+            } catch (err) {
+                console.error(err);
+                zoneResultat.innerHTML = `<p style="color: red;">❌ Erreur de connexion au serveur.</p>`;
+            } finally {
+                this.disabled = false;
+            }
+        });
+    </script>
 </body>
 </html>
