@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="carte">
+    <h1>Connexion</h1>
+    <form id="f">
+      <label>Email <input name="email" type="email" required></label>
+      <label>Mot de passe <input name="mot_de_passe" type="password" required></label>
+      <button type="submit">Se connecter</button>
+    </form>
+    <div id="msg"></div>
+    <p class="lien">Pas de compte ? <a href="/register.html">S'inscrire</a></p>
+  </main>
+  <script>
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const r = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const j = await r.json();
+      if (r.ok) location.href = '/dashboard';
+      else document.getElementById('msg').textContent = j.erreur;
+    });
+  </script>
+</body>
+</html>

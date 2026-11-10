@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inscription</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="carte">
+    <h1>Inscription</h1>
+    <form id="f">
+      <label>Nom complet <input name="nom" required></label>
+      <label>Email <input name="email" type="email" required></label>
+      <label>Mot de passe (8 caractères min.) <input name="mot_de_passe" type="password" minlength="8" required></label>
+      <button type="submit">Créer mon compte</button>
+    </form>
+    <div id="msg"></div>
+    <p class="lien">Déjà inscrit ? <a href="/login.html">Se connecter</a></p>
+  </main>
+  <script>
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const r = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const j = await r.json();
+      if (r.ok) location.href = '/dashboard';
+      else document.getElementById('msg').textContent = j.erreur;
+    });
+  </script>
+</body>
+</html>

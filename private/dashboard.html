@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tableau de bord</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="carte">
+    <h1 id="titre">Bienvenue</h1>
+    <p>Les examens disponibles apparaîtront ici.</p>
+    <button id="out">Se déconnecter</button>
+  </main>
+  <script>
+    fetch('/api/auth/me').then((r) => r.json()).then((u) => {
+      document.getElementById('titre').textContent = 'Bienvenue, ' + u.nom;
+    });
+    document.getElementById('out').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    });
+  </script>
+</body>
+</html>

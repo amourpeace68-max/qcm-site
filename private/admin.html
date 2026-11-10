@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="carte" style="max-width:720px">
+    <h1>Administration</h1>
+    <p><a href="/api/admin/generer-page">Générer un QCM depuis un document</a></p>
+    <h2>Importer un QCM</h2>
+    <form id="f">
+      <label>Titre <input name="titre" required></label>
+      <label>Matière <input name="matiere"></label>
+      <label>Durée (minutes) <input name="duree_minutes" type="number" min="1" value="30" required></label>
+      <label>Fichier (.xlsx ou .csv) <input name="fichier" type="file" required></label>
+      <button type="submit">Importer</button>
+    </form>
+    <div id="msg" style="white-space:pre-line"></div>
+    <h2>Mes QCM</h2>
+    <div id="liste"></div>
+  </main>
+  <script>
+    const msg = document.getElementById('msg');
+
+    async function charger() {
+      const r = await fetch('/api/admin/qcm');
+      const liste = await r.json();
+      const zone = document.getElementById('liste');
+      zone.replaceChildren();
+      for (const q of liste) {
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:8px';
+        const t = document.createElement('span');
+        t.textContent = q.titre + ' — ' + q.nb_questions + ' questions, ' + q.duree_minutes + ' min — ' + (q.publie ? 'publié' : 'brouillon');
+        const b = document.createElement('button');
+        b.style.cssText = 'width:auto;margin:0;padding:6px 12px';
+        b.textContent = q.publie ? 'Dépublier' : 'Publier';
+        b.onclick = async () => {
+          await fetch('/api/admin/qcm/' + q.id + '/publication', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ publie: !q.publie }),
+          });
+          charger();
+        };
+        div.append(t, b);
+        zone.append(div);
+      }
+    }
+
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.style.color = '#c0392b';
+      msg.textContent = 'Import en cours…';
+      const r = await fetch('/api/admin/import', { method: 'POST', body: new FormData(e.target) });
+      const j = await r.json();
+      if (r.ok) {
+        msg.style.color = '#1e8449';
+        msg.textContent = 'QCM importé : ' + j.nb_questions + ' questions.';
+        e.target.reset();
+        charger();
+      } else {
+        msg.textContent = j.erreur;
+      }
+    });
+
+    charger();
+  </script>
+</body>
+</html>

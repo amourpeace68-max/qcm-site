@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Générer un QCM</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="carte" style="max-width:720px">
+    <h1>Générer un QCM depuis un document</h1>
+    <p><a href="/admin">← Retour à l'administration</a></p>
+    <form id="f">
+      <label>Titre <input name="titre" required></label>
+      <label>Matière <input name="matiere"></label>
+      <label>Durée de l'examen (minutes) <input name="duree_minutes" type="number" min="1" value="30" required></label>
+      <label>Nombre de questions <input name="nb_questions" type="number" min="3" max="30" value="5" required></label>
+      <label>Difficulté
+        <select name="difficulte" style="width:100%;padding:10px;border:1px solid #ccd;border-radius:8px">
+          <option value="facile">Facile</option>
+          <option value="moyenne" selected>Moyenne</option>
+          <option value="difficile">Difficile</option>
+        </select>
+      </label>
+      <label>Document (PDF ou TXT) <input name="fichier" type="file" accept=".pdf,.txt" required></label>
+      <button id="go" type="submit">Générer les questions</button>
+    </form>
+    <div id="msg" style="white-space:pre-line"></div>
+    <div id="zone"></div>
+  </main>
+  <script>
+    const msg = document.getElementById('msg');
+    const zone = document.getElementById('zone');
+    const go = document.getElementById('go');
+
+    function afficher(questions) {
+      zone.replaceChildren();
+      questions.forEach((q, i) => {
+        const bloc = document.createElement('div');
+        bloc.style.cssText = 'border-top:1px solid #eee;padding:12px 0';
+        const t = document.createElement('strong');
+        t.textContent = (i + 1) + '. ' + q.enonce;
+        bloc.append(t);
+        for (const L of ['A', 'B', 'C', 'D']) {
+          const texte = q['option_' + L.toLowerCase()];
+          if (!texte) continue;
+          const p = document.createElement('div');
+          p.textContent = L + ') ' + texte + (q.bonne_reponse === L ? '  ✓' : '');
+          if (q.bonne_reponse === L) p.style.cssText = 'color:#1e8449;font-weight:600';
+          bloc.append(p);
+        }
+        if (q.explication) {
+          const e = document.createElement('div');
+          e.style.cssText = 'font-size:.9rem;color:#555;margin-top:4px';
+          e.textContent = 'Explication : ' + q.explication;
+          bloc.append(e);
+        }
+        const b = document.createElement('button');
+        b.textContent = 'Supprimer cette question';
+        b.style.cssText = 'width:auto;margin:8px 0 0;padding:6px 12px;background:#c0392b';
+        b.onclick = async () => {
+          const r = await fetch('/api/admin/questions/' + q.id, { method: 'DELETE' });
+          if (r.ok) bloc.remove();
+        };
+        bloc.append(b);
+        zone.append(bloc);
+      });
+    }
+
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      go.disabled = true;
+      msg.style.color = '#555';
+      msg.textContent = 'Génération en cours… cela peut prendre plusieurs minutes avec un modèle local. Ne ferme pas cette page.';
+      zone.replaceChildren();
+      try {
+        const r = await fetch('/api/admin/generer', { method: 'POST', body: new FormData(e.target) });
+        const j = await r.json();
+        if (r.ok) {
+          msg.style.color = '#1e8449';
+          msg.textContent = j.questions.length + ' questions créées (brouillon). Relis-les, supprime celles qui ne conviennent pas, puis publie le QCM depuis la page d\'administration.';
+          afficher(j.questions);
+        } else {
+          msg.style.color = '#c0392b';
+          msg.textContent = j.erreur || 'Erreur.';
+        }
+      } catch (err) {
+        msg.style.color = '#c0392b';
+        msg.textContent = 'Erreur réseau.';
+      }
+      go.disabled = false;
+    });
+  </script>
+</body>
+</html>
