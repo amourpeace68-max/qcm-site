@@ -13,57 +13,39 @@
         
         <button id="out" style="margin-bottom: 20px;">Se déconnecter</button>
 
-        <!-- Le formulaire de génération -->
         <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
             <h3 style="margin-top: 0;">Créer mon QCM</h3>
-            
             <label style="font-weight: bold;">Fichier PDF ou TXT :</label><br>
             <input type="file" id="fichier-etudiant" accept=".pdf,.txt" style="margin-top: 5px; margin-bottom: 15px;"><br>
-
             <label style="font-weight: bold;">Nombre de questions :</label><br>
             <select id="nb-questions-etudiant" style="margin-top: 5px; margin-bottom: 15px; padding: 5px;">
                 <option value="5">5 questions</option>
                 <option value="10" selected>10 questions</option>
                 <option value="15">15 questions</option>
             </select><br>
-
             <button id="btn-generer-etudiant" style="background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
                 Générer mon QCM
             </button>
         </div>
-
-        <!-- Zone où s'afficheront les questions -->
         <div id="resultat-etudiant" style="margin-top: 20px;"></div>
     </main>
 
     <script>
-        // 1. Afficher le nom de l'utilisateur connecté
-        fetch('/api/auth/me')
-            .then(r => r.json())
-            .then(data => {
-                if (data && data.nom) {
-                    document.getElementById('titre').textContent = 'Bienvenue, ' + data.nom;
-                }
-            })
-            .catch(err => console.log('Erreur auth:', err));
+        fetch('/api/auth/me').then(r => r.json()).then(data => {
+            if (data && data.nom) document.getElementById('titre').textContent = 'Bienvenue, ' + data.nom;
+        }).catch(() => {});
 
-        // 2. Gérer la déconnexion
         document.getElementById('out').addEventListener('click', async () => {
             await fetch('/api/auth/logout', { method: 'POST' });
             window.location.href = '/login.html';
         });
 
-        // 3. Gérer la génération du QCM
         document.getElementById('btn-generer-etudiant').addEventListener('click', async function() {
-            const fichierInput = document.getElementById('fichier-etudiant');
-            const fichier = fichierInput.files[0];
+            const fichier = document.getElementById('fichier-etudiant').files[0];
             const nbQuestions = document.getElementById('nb-questions-etudiant').value;
             const zoneResultat = document.getElementById('resultat-etudiant');
 
-            if (!fichier) {
-                alert("Veuillez sélectionner un fichier PDF ou TXT.");
-                return;
-            }
+            if (!fichier) return alert("Veuillez sélectionner un fichier PDF ou TXT.");
 
             zoneResultat.innerHTML = "<p>⏳ Analyse du document et génération en cours... (environ 5 secondes)</p>";
             this.disabled = true;
@@ -74,11 +56,7 @@
             formData.append('difficulte', 'moyenne');
 
             try {
-                const reponse = await fetch('/api/generer-etudiant', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const reponse = await fetch('/api/generer-etudiant', { method: 'POST', body: formData });
                 const data = await reponse.json();
 
                 if (data.ok) {
@@ -99,7 +77,6 @@
                     zoneResultat.innerHTML = `<p style="color: red;">❌ Erreur : ${data.erreur}</p>`;
                 }
             } catch (err) {
-                console.error(err);
                 zoneResultat.innerHTML = `<p style="color: red;">❌ Erreur de connexion au serveur.</p>`;
             } finally {
                 this.disabled = false;
